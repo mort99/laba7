@@ -1,0 +1,208 @@
+---
+title: "Упражнение №7"
+author: "Маркин Артём"
+date: "13 05 2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+Необходимо построить две модели:  
+
+- зависимости непрерывного отклика от одного непрерывного предиктора;
+- зависимости вероятности (логит) от одного непрерывного предиктора.   
+
+Для каждой модели:   
+
+**1** Указать смысл переменных модели, метод оценки и настроечный параметр (степень полинома, гиперпараметр $λ$, ширина окна $s$, число узлов – в зависимости от метода).   
+
+**2** Подогнать модель на всех наблюдениях, меняя значение настроечного параметра.   
+
+**3** Обосновать оптимальное значение настроечного параметра подходящим методом (кросс-валидация, ANOVA).   
+
+**4** Сделать прогноз на обучающую выборку по лучшей модели: модельные значения и ошибки прогноза.   
+
+**5** Построить график с фактическими наблюдениями, модельной кривой и 95% доверительными интервалами прогноза. 
+
+# Вариант -- 12
+
+Модели: Сглаживающий сплайн.   
+Данные: `Auto {ISLR}'.
+
+```{r setup1, warning = F, message = F}
+library('ISLR')              # набор данных Auto
+library('splines')           # сплайны
+library('gam')               # обобщённые аддитивные модели
+library('akima')             # график двумерной плоскости
+library('ggplot2')           # красивые графики
+
+# загрузка данных Auto
+data('Auto')
+
+# ядро
+my.seed <- 1
+```
+
+Работаем с набором данных по расходу бензина, лошадиной силе и другой информация для 392 автомобилей. Присоединяем его к пространству имён функцией `attach()`, и дальше обращаемся напрямую к столбцам таблицы.    
+
+```{r}
+attach(Auto)
+```
+
+Работаем со столбцами:    
+* `displacement` - Объем двигателя (куб. Дюймов);   
+* `horsepower` - Мощность двигателя.   
+
+## Сглаживающий сплайн
+
+Судя по графику ниже, взаимосвязь объема двигателя и мощности двигателя нелинейна. Наблюдается также группа наблюдений с высоким значением `displacement`, граница проходит примерно на уровне 290.
+
+```{r, fig.height = 5, fig.width = 5}
+gp <- ggplot(data = Auto, aes(x = horsepower, y = displacement))
+gp <- gp + geom_point() + geom_abline(slope = 0, intercept = 280, col = 'red')
+gp
+```
+
+### Зависимость объема двигателя от мощности двигателя (модель 1)
+
+```{r, fig.height = 5, fig.width = 5}
+# Границы изменения переменной horsepower
+horlims <- range(horsepower)
+
+# значения horsepower, для которых делаем прогноз (от min до max с шагом 1)
+hor.grid <- seq(from = horlims[1], to = horlims[2])
+
+# подгоняем модель с 16 степенями свободы
+fit1 <- smooth.spline(horsepower, displacement, df = 16)
+
+fit2 <- smooth.spline(horsepower, displacement, lambda = 0.1)
+
+# прогноз
+preds.cut <- predict(fit1, newdata  = list(horsepower = hor.grid), se = T)
+
+# Интервальный прогноз
+se.bands <- cbind(lower.bound = preds.cut$fit1 - 2*preds.cut$se.fit1,
+                      upper.bound = preds.cut$fit1 + 2*preds.cut$se.fit1)
+
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 1, 1), oma = c(0, 0, 4, 0))
+
+# наблюдения
+plot(horsepower, displacement, xlim = horlims, cex = 0.5, col = 'darkgrey')
+
+# заголовок
+title('Сглаживающий сплайн')
+
+# рисуем модель
+lines(fit1, col = 'red', lwd = 2)
+
+lines(fit2, col = 'blue', lwd = 2)
+
+# Легенда
+legend('topright', 
+       c('16 df', '0.1 lambda'),
+       col = c('red', 'blue'), lty = 1, lwd = 2, cex = 0.8)
+```
+
+### Определение оптимального настроечного параметра (модель 1)
+
+Подгоняем модель с подбором лямбды с помощью перекрёстной проверки и определяем оптимальное количество степеней свободы
+
+```{r, warning=FALSE}
+fit <- smooth.spline(horsepower, displacement, cv = T)
+
+fit$df
+## df = 4.95
+
+## Лучшая модель
+best.fit.1 <- fit
+best.fit.1
+```
+
+### График с фактическими наблюдениями, модельной кривой и 95% доверительными интервалами прогноза (модель 1)
+
+```{r}
+# Сетка для графика
+plot(horsepower, displacement, xlim = horlims, type = 'n',
+     ylab = 'P(Displacement | Horsepower)')
+
+# Фактические наблюдения показываем засечки
+points(jitter(horsepower), displacement, cex = 0.5, pch = '|', col = 'darkgrey')
+
+pfit <- preds.cut$fit
+# Модель
+lines(hor.grid, pfit, lwd = 2, col = 'darkgreen')
+
+# Заголовок
+title('Сглаживающий сплайн')
+```
+
+### Зависимость объема двигателя от мощности двигателя (модель 2)
+
+```{r, fig.height = 5, fig.width = 5}
+# подгоняем модель с 16 степенями свободы
+fit3 <- smooth.spline(horsepower, I(displacement > 280), df = 16)
+
+fit4 <- smooth.spline(horsepower, I(displacement > 280), lambda = 0.1)
+
+# прогноз
+preds.cut <- predict(fit3, newdata  = list(horsepower = hor.grid), se = T)
+
+# Интервальный прогноз
+se.bands <- cbind(lower.bound = preds.cut$fit3 - 2*preds.cut$se.fit3,
+                      upper.bound = preds.cut$fit3 + 2*preds.cut$se.fit3)
+
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 1, 1), oma = c(0, 0, 4, 0))
+
+# наблюдения
+plot(horsepower, I(displacement > 280), xlim = horlims, cex = 0.5, col = 'darkgrey')
+
+# заголовок
+title('Сглаживающий сплайн')
+
+# рисуем модель
+lines(fit3, col = 'red', lwd = 2)
+
+lines(fit4, col = 'blue', lwd = 2)
+
+# Легенда
+legend('topright', 
+       c('16 df', '0.1 lambda'),
+       col = c('red', 'blue'), lty = 1, lwd = 2, cex = 0.8)
+```
+
+### Определение оптимального настроечного параметра (модель 2)
+
+Подгоняем модель с подбором лямбды с помощью перекрёстной проверки и определяем оптимальное количество степеней свободы
+
+```{r, warning=FALSE}
+fit <- smooth.spline(horsepower, I(displacement > 280), cv = T)
+
+fit$df
+## df = 61.78
+
+## Лучшая модель
+best.fit.2 <- fit
+best.fit.2
+```
+
+### График с фактическими наблюдениями, модельной кривой и 95% доверительными интервалами прогноза (модель 2)
+
+```{r}
+# Сетка для графика
+plot(horsepower, I(displacement > 280), xlim = horlims, type = 'n',
+     ylab = 'P(Displacement > 280 | Horsepower)')
+
+# Фактические наблюдения показываем засечки
+points(jitter(horsepower), I(displacement > 280), cex = 0.5, pch = '|', col = 'darkgrey')
+
+pfit <- preds.cut$fit3
+# Модель
+lines(hor.grid, pfit, lwd = 2, col = 'darkgreen')
+
+# Заголовок
+title('Сглаживающий сплайн')
+```
